@@ -1,3 +1,3 @@
-# Global dictionaries to store cookie data and account state for each user
+# Global dictionaries to store cookie data and account balance for each user
 user_cookies = {}
-user_account_state = {}
+user_account_balance = {}

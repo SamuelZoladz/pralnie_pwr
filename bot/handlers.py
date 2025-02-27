@@ -1,22 +1,23 @@
-import tempfile
-import os
-import re
 import asyncio
-import subprocess
+
+import requests
 from telegram import Update
 from telegram.ext import (
-    ConversationHandler, CommandHandler, MessageHandler, filters, CallbackContext
+    ConversationHandler, CallbackContext
 )
+
+from bot.state import user_cookies, user_account_balance
 from external.auth import authenticate_pralni
-from bot.state import user_cookies, user_account_state
 
 # Conversation stages
 EXTERNAL_LOGIN, EXTERNAL_PASSWORD = range(2)
+
 
 async def start(update: Update, context: CallbackContext) -> int:
     # Ask for login to the laundry service
     await update.message.reply_text("Podaj login do serwisu pralni:")
     return EXTERNAL_LOGIN
+
 
 async def external_login(update: Update, context: CallbackContext) -> int:
     # Save the provided login in user data
@@ -24,69 +25,66 @@ async def external_login(update: Update, context: CallbackContext) -> int:
     await update.message.reply_text("Podaj hasło do serwisu pralni:")
     return EXTERNAL_PASSWORD
 
+
 async def external_password(update: Update, context: CallbackContext) -> int:
     # Retrieve login and password, then attempt authentication
     login_value = context.user_data.get("pralni_login")
     password_value = update.message.text.strip()
     chat_id = update.message.chat_id
 
-    auth_result = authenticate_pralni(login_value, password_value, chat_id, user_cookies, user_account_state)
+    auth_result = authenticate_pralni(login_value, password_value, chat_id, user_cookies, user_account_balance)
     if auth_result is None:
         await update.message.reply_text("Niepoprawne dane. Spróbuj jeszcze raz. Podaj login:")
         return EXTERNAL_LOGIN
     else:
-        state_number, cookie_data = auth_result
         await update.message.reply_text(
             "Zalogowano w serwisie pralni!\n"
-            f"Stan konta: {state_number}\n"
             "Możesz teraz korzystać z komend /stan oraz /doladuj."
         )
         return ConversationHandler.END
 
+
 async def stan(update: Update, context: CallbackContext) -> None:
-    # Display the current account state
+    # Display the current account balance
     chat_id = update.message.chat_id
-    if chat_id in user_account_state:
-        state = user_account_state[chat_id]
-        await update.message.reply_text(f"Stan Twojego konta: {state}")
+    if chat_id in user_cookies:
+        if chat_id in user_account_balance:
+            account_balance = user_account_balance[chat_id]
+            await update.message.reply_text(f"Stan Twojego konta: {account_balance}")
+        else:
+            await update.message.reply_text(f"Trwa synchronizacja, proszę czekać")
     else:
         await update.message.reply_text("Nie jesteś zalogowany. Użyj /start aby się zalogować.")
 
+
 async def doladuj(update: Update, context: CallbackContext) -> None:
-    # Perform a top-up operation by sending a POST request via curl
+    # Perform a top-up operation by sending a POST request
     chat_id = update.message.chat_id
     if chat_id not in user_cookies:
         await update.message.reply_text("Nie jesteś zalogowany. Użyj /start aby się zalogować.")
         return
 
     cookie_data = user_cookies[chat_id]
-    # Write cookie data to a temporary file
-    with tempfile.NamedTemporaryFile(delete=False) as cookie_file:
-        cookie_file.write(cookie_data.encode())
-        cookie_filename = cookie_file.name
-
-    cmd = [
-        "curl", "-v", "-X", "POST",
-        "-b", cookie_filename,
-        "-d", "top_up_id=1",
-        "-d", "rules=on",
-        "-d", "rodo=on",
-        "-d", "yt0=Doładuj konto",
-        "https://pralnie.org/index.php/topUp/createRequest"
-    ]
-
-    # Execute the curl command in a separate thread to avoid blocking
-    result = await asyncio.to_thread(subprocess.run, cmd, capture_output=True, text=True)
-
-    os.remove(cookie_filename)
-
-    # Search for the "Location" header in stderr to retrieve the top-up link
-    match = re.search(r"Location:\s*(\S+)", result.stderr)
-    if match:
-        link = match.group(1)
-        await update.message.reply_text(f"Link do doładowania: {link}")
+    headers = {"Cookie": cookie_data}
+    data = {
+        "top_up_id": "1",
+        "rules": "on",
+        "rodo": "on",
+        "yt0": "Doładuj konto"
+    }
+    response = await asyncio.to_thread(
+        requests.post,
+        "https://pralnie.org/index.php/topUp/createRequest",
+        headers=headers,
+        data=data,
+        allow_redirects=False
+    )
+    top_up_link = response.headers.get("Location")
+    if top_up_link:
+        await update.message.reply_text(f"Link do doładowania: {top_up_link}")
     else:
         await update.message.reply_text("Nie udało się pobrać linka do doładowania.")
+
 
 async def cancel(update: Update, context: CallbackContext) -> int:
     # Cancel the authentication process
