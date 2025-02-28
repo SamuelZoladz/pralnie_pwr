@@ -6,12 +6,12 @@ from telegram.ext import (
     ConversationHandler, CallbackContext
 )
 
-from bot.state import user_cookies, user_account_balance
+from bot.db import UserDatabase
 from external.auth import authenticate_pralni
 
 # Conversation stages
 EXTERNAL_LOGIN, EXTERNAL_PASSWORD = range(2)
-
+db = UserDatabase()
 
 async def start(update: Update, context: CallbackContext) -> int:
     # Ask for login to the laundry service
@@ -32,7 +32,7 @@ async def external_password(update: Update, context: CallbackContext) -> int:
     password_value = update.message.text.strip()
     chat_id = update.message.chat_id
 
-    auth_result = authenticate_pralni(login_value, password_value, chat_id, user_cookies, user_account_balance)
+    auth_result = authenticate_pralni(login_value, password_value, chat_id)
     if auth_result is None:
         await update.message.reply_text("Niepoprawne dane. Spróbuj jeszcze raz. Podaj login:")
         return EXTERNAL_LOGIN
@@ -47,10 +47,11 @@ async def external_password(update: Update, context: CallbackContext) -> int:
 async def stan(update: Update, context: CallbackContext) -> None:
     # Display the current account balance
     chat_id = update.message.chat_id
-    if chat_id in user_cookies:
-        if chat_id in user_account_balance:
-            account_balance = user_account_balance[chat_id]
-            await update.message.reply_text(f"Stan Twojego konta: {account_balance}")
+    if db.get_cookies(chat_id):
+        current_balance = db.get_account_balance(chat_id)
+        balance_date = db.get_last_modify_balance(chat_id)
+        if current_balance:
+            await update.message.reply_text(f"Stan Twojego konta: {current_balance}\nBalans z {balance_date}")
         else:
             await update.message.reply_text(f"Trwa synchronizacja, proszę czekać")
     else:
@@ -59,12 +60,11 @@ async def stan(update: Update, context: CallbackContext) -> None:
 
 async def doladuj(update: Update, context: CallbackContext) -> None:
     # Perform a top-up operation by sending a POST request
-    chat_id = update.message.chat_id
-    if chat_id not in user_cookies:
+    cookie_data = db.get_cookies(update.message.chat_id)
+    if not cookie_data:
         await update.message.reply_text("Nie jesteś zalogowany. Użyj /start aby się zalogować.")
         return
 
-    cookie_data = user_cookies[chat_id]
     headers = {"Cookie": cookie_data}
     data = {
         "top_up_id": "1",
