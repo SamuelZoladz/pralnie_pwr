@@ -10,8 +10,6 @@ import requests
 from bot.db import UserDatabase
 from config import PRALNIE_ACCOUNT_URL
 
-logging.basicConfig(level=logging.DEBUG)
-
 
 def fetch_account_balance(cookie_data: str) -> str:
     """

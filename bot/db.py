@@ -32,6 +32,7 @@ class UserDatabase(metaclass=SingletonMeta):
                 CREATE TABLE IF NOT EXISTS users (
                     chat_id INTEGER PRIMARY KEY,
                     cookies TEXT,
+                    cookie_expirations TEXT,
                     account_balance TEXT,
                     last_modify_balance TEXT,
                     username TEXT,
@@ -40,6 +41,21 @@ class UserDatabase(metaclass=SingletonMeta):
             ''')
             self.conn.commit()
         logging.debug("initialize_db finished")
+
+    def set_cookie_expirations(self, chat_id, expiration_time):
+        """
+        Sets the cookie expiration time for the user with the specified chat_id.
+        """
+        logging.debug(f"set_cookie_expirations starting for chat_id {chat_id}")
+        with self.lock:
+            if self.get_user(chat_id) is None:
+                self.cursor.execute("INSERT INTO users (chat_id, cookie_expirations) VALUES (?, ?)",
+                                    (chat_id, expiration_time))
+            else:
+                self.cursor.execute("UPDATE users SET cookie_expirations = ? WHERE chat_id = ?",
+                                    (expiration_time, chat_id))
+            self.conn.commit()
+        logging.debug(f"set_cookie_expirations finished for chat_id {chat_id}")
 
     def get_all_chat_ids(self):
         """Returns a list of all chat_id values in the database."""
