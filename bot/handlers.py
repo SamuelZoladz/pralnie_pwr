@@ -1,13 +1,12 @@
-import asyncio
-
-import requests
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ConversationHandler, CallbackContext
 )
 
-from bot.db import UserDatabase
-from external.auth import authenticate_pralni
+from database.db import UserDatabase
+from laundry_connect.account_balance import get_transactions_sum
+from laundry_connect.auth import authenticate_pralni
+from laundry_connect.topup import topup_account
 
 # Conversation stages
 EXTERNAL_LOGIN, EXTERNAL_PASSWORD = range(2)
@@ -37,6 +36,8 @@ async def external_password(update: Update, context: CallbackContext) -> int:
         await update.message.reply_text("Niepoprawne dane. Spróbuj jeszcze raz. Podaj login:")
         return EXTERNAL_LOGIN
     else:
+        db.set_username(chat_id, login_value)
+        db.set_password(chat_id, password_value)
         await update.message.reply_text(
             "Zalogowano w serwisie pralni!\n"
             "Możesz teraz korzystać z komend /stan oraz /doladuj."
@@ -48,42 +49,48 @@ async def stan(update: Update, context: CallbackContext) -> None:
     # Display the current account balance
     chat_id = update.message.chat_id
     if db.get_cookies(chat_id):
-        current_balance = db.get_account_balance(chat_id)
-        balance_date = db.get_last_modify_balance(chat_id)
+        current_balance = get_transactions_sum(chat_id)
         if current_balance:
-            await update.message.reply_text(f"Stan Twojego konta: {current_balance}\nBalans z {balance_date}")
+            await update.message.reply_text(f"Stan Twojego konta: {current_balance}")
         else:
-            await update.message.reply_text(f"Trwa synchronizacja, proszę czekać")
+            await update.message.reply_text(f"Coś się zepsuło. Nie udało się pobrać stanu konta.")
     else:
         await update.message.reply_text("Nie jesteś zalogowany. Użyj /start aby się zalogować.")
 
 
 async def doladuj(update: Update, context: CallbackContext) -> None:
-    # Perform a top-up operation by sending a POST request
-    cookie_data = db.get_cookies(update.message.chat_id)
-    if not cookie_data:
+    chat_id = update.message.chat_id
+
+    if not db.get_cookies(chat_id):
         await update.message.reply_text("Nie jesteś zalogowany. Użyj /start aby się zalogować.")
         return
 
-    headers = {"Cookie": cookie_data}
-    data = {
-        "top_up_id": "1",
-        "rules": "on",
-        "rodo": "on",
-        "yt0": "Doładuj konto"
-    }
-    response = await asyncio.to_thread(
-        requests.post,
-        "https://pralnie.org/index.php/topUp/createRequest",
-        headers=headers,
-        data=data,
-        allow_redirects=False
-    )
-    top_up_link = response.headers.get("Location")
+    keyboard = [
+        [InlineKeyboardButton("10 zł", callback_data="1")],
+        [InlineKeyboardButton("15 zł", callback_data="2")],
+        [InlineKeyboardButton("20 zł", callback_data="3")],
+        [InlineKeyboardButton("30 zł", callback_data="4")],
+        [InlineKeyboardButton("50 zł", callback_data="5")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Wybierz kwotę doładowania:", reply_markup=reply_markup)
+
+async def button_callback(update: Update, context: CallbackContext) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    chat_id = query.message.chat_id
+
+    selected_option = query.data
+    if selected_option not in ("1", "2", "3", "4", "5"):
+        await query.edit_message_text("Wybrano niepoprawną opcję.")
+        return
+
+    top_up_link = topup_account(chat_id, selected_option)
     if top_up_link:
-        await update.message.reply_text(f"Link do doładowania: {top_up_link}")
+        await query.edit_message_text(f"Link do doładowania: {top_up_link}")
     else:
-        await update.message.reply_text("Nie udało się pobrać linka do doładowania.")
+        await query.edit_message_text("Nie udało się pobrać linka do doładowania.")
 
 
 async def cancel(update: Update, context: CallbackContext) -> int:

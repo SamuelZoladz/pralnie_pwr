@@ -33,39 +33,12 @@ class UserDatabase(metaclass=SingletonMeta):
                     chat_id INTEGER PRIMARY KEY,
                     cookies TEXT,
                     cookie_expirations TEXT,
-                    account_balance TEXT,
-                    last_modify_balance TEXT,
                     username TEXT,
                     password TEXT
                 )
             ''')
             self.conn.commit()
         logging.debug("initialize_db finished")
-
-    def set_cookie_expirations(self, chat_id, expiration_time):
-        """
-        Sets the cookie expiration time for the user with the specified chat_id.
-        """
-        logging.debug(f"set_cookie_expirations starting for chat_id {chat_id}")
-        with self.lock:
-            if self.get_user(chat_id) is None:
-                self.cursor.execute("INSERT INTO users (chat_id, cookie_expirations) VALUES (?, ?)",
-                                    (chat_id, expiration_time))
-            else:
-                self.cursor.execute("UPDATE users SET cookie_expirations = ? WHERE chat_id = ?",
-                                    (expiration_time, chat_id))
-            self.conn.commit()
-        logging.debug(f"set_cookie_expirations finished for chat_id {chat_id}")
-
-    def get_all_chat_ids(self):
-        """Returns a list of all chat_id values in the database."""
-        logging.debug("get_all_chat_ids starting")
-        with self.lock:
-            self.cursor.execute("SELECT chat_id FROM users")
-            result = [row[0] for row in self.cursor.fetchall()]
-        logging.debug("get_all_chat_ids finished")
-        return result
-
 
     def get_user(self, chat_id):
         """Retrieves all the data of a user with a given chat_id."""
@@ -100,59 +73,31 @@ class UserDatabase(metaclass=SingletonMeta):
         logging.debug(f"get_cookies finished for chat_id {chat_id}")
         return result['cookies'] if result else None
 
-    def set_account_balance(self, chat_id, balance):
+    def set_cookie_expirations(self, chat_id, expiration_time):
         """
-        Sets the account balance for the user with the given chat_id.
+        Sets the cookie expiration time for the user with the specified chat_id.
         """
-        logging.debug(f"set_account_balance starting for chat_id {chat_id}")
+        logging.debug(f"set_cookie_expirations starting for chat_id {chat_id}")
         with self.lock:
             if self.get_user(chat_id) is None:
-                self.cursor.execute("INSERT INTO users (chat_id, account_balance) VALUES (?, ?)", (chat_id, balance))
+                self.cursor.execute("INSERT INTO users (chat_id, cookie_expirations) VALUES (?, ?)",
+                                    (chat_id, expiration_time))
             else:
-                self.cursor.execute("UPDATE users SET account_balance = ? WHERE chat_id = ?", (balance, chat_id))
+                self.cursor.execute("UPDATE users SET cookie_expirations = ? WHERE chat_id = ?",
+                                    (expiration_time, chat_id))
             self.conn.commit()
-        logging.debug(f"set_account_balance finished for chat_id {chat_id}")
+        logging.debug(f"set_cookie_expirations finished for chat_id {chat_id}")
 
-    def get_account_balance(self, chat_id):
+    def get_cookie_expirations(self, chat_id):
         """
-        Gets the account balance for a user with a given chat_id.
+        Gets the cookie expiration time for the user with the specified chat_id.
         """
-        logging.debug(f"get_account_balance starting for chat_id {chat_id}")
+        logging.debug(f"get_cookie_expirations starting for chat_id {chat_id}")
         with self.lock:
-            self.cursor.execute("SELECT account_balance FROM users WHERE chat_id = ?", (chat_id,))
+            self.cursor.execute("SELECT cookie_expirations FROM users WHERE chat_id = ?", (chat_id,))
             result = self.cursor.fetchone()
-        logging.debug(f"get_account_balance finished for chat_id {chat_id}")
-        return result['account_balance'] if result else None
-
-    def set_last_modify_balance(self, chat_id, last_modify_balance):
-        """
-        Sets the date/time of the last balance modification for a user with a given chat_id.
-        """
-        logging.debug(f"set_last_modify_balance starting for chat_id {chat_id}")
-        with self.lock:
-            if self.get_user(chat_id) is None:
-                self.cursor.execute(
-                    "INSERT INTO users (chat_id, last_modify_balance) VALUES (?, ?)",
-                    (chat_id, last_modify_balance)
-                )
-            else:
-                self.cursor.execute(
-                    "UPDATE users SET last_modify_balance = ? WHERE chat_id = ?",
-                    (last_modify_balance, chat_id)
-                )
-            self.conn.commit()
-        logging.debug(f"set_last_modify_balance finished for chat_id {chat_id}")
-
-    def get_last_modify_balance(self, chat_id):
-        """
-        Gets the date/time of the last balance modification for a user with a given chat_id.
-        """
-        logging.debug(f"get_last_modify_balance starting for chat_id {chat_id}")
-        with self.lock:
-            self.cursor.execute("SELECT last_modify_balance FROM users WHERE chat_id = ?", (chat_id,))
-            result = self.cursor.fetchone()
-        logging.debug(f"get_last_modify_balance finished for chat_id {chat_id}")
-        return result['last_modify_balance'] if result else None
+        logging.debug(f"get_cookie_expirations finished for chat_id {chat_id}")
+        return result['cookie_expirations'] if result else None
 
     def set_username(self, chat_id, username):
         """
