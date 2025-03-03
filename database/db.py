@@ -1,6 +1,8 @@
 import logging
 import sqlite3
 import threading
+from datetime import datetime
+
 
 class SingletonMeta(type):
     _instance = None
@@ -13,6 +15,7 @@ class SingletonMeta(type):
                 cls._instance = super(SingletonMeta, cls).__call__(*args, **kwargs)
         logging.debug("SingletonMeta __call__ finished")
         return cls._instance
+
 
 class UserDatabase(metaclass=SingletonMeta):
     def __init__(self, db_file='users.db'):
@@ -149,6 +152,31 @@ class UserDatabase(metaclass=SingletonMeta):
             result = self.cursor.fetchone()
         logging.debug(f"get_password finished for chat_id {chat_id}")
         return result['password'] if result else None
+
+    def get_users_data(self):
+        """
+        Retrieves all user data (chat_id, username, password, cookie_expirations) and returns a list sorted by
+        expiration date.
+        """
+        query = "SELECT chat_id, username, password, cookie_expirations FROM users"
+        self.cursor.execute(query)
+        rows = self.cursor.fetchall()
+        users = []
+        for row in rows:
+            exp_str = row['cookie_expirations']
+            try:
+                exp_date = datetime.strptime(exp_str, "%Y-%m-%d %H:%M:%S UTC")
+            except Exception as e:
+                logging.error(f"Error while parsing cookie expiration date for chat_id {row['chat_id']}: {e}")
+                continue
+            users.append({
+                'chat_id': row['chat_id'],
+                'username': row['username'],
+                'password': row['password'],
+                'cookie_expirations': exp_date
+            })
+        users.sort(key=lambda u: u['cookie_expirations'])
+        return users
 
     def close(self):
         """Close connection to db"""

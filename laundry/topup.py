@@ -1,6 +1,8 @@
-import requests
 import logging
 
+import requests
+
+from config import PRALNIE_TOPUP_URL
 from database.db import UserDatabase
 
 
@@ -30,7 +32,7 @@ def topup_account(chat_id: int, topup_value: str = '1'):
         print(headers)
         logging.info(f"Sending top-up request for chat_id: {chat_id}")
         response = requests.post(
-            "https://pralnie.org/index.php/topUp/createRequest",
+            PRALNIE_TOPUP_URL,
             headers=headers,
             data=data,
             allow_redirects=False

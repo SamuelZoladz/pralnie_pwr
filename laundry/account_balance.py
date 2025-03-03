@@ -1,6 +1,9 @@
-import urllib.parse
 import re
+import urllib.parse
+
 import requests
+
+from config import PRALNIE_BASE_TRANSACTIONS_URL
 from database.db import UserDatabase
 
 
@@ -67,7 +70,7 @@ def get_transactions_sum(chat_id: int):
         raise ValueError("Failed to extract user ID from the cookie.")
 
     # Fetch the transaction list for the given user ID
-    url = f"https://pralnie.org/index.php/accountTransaction/getTransactionList/{user_id}"
+    url = f"{PRALNIE_BASE_TRANSACTIONS_URL}/{user_id}"
     headers = {"Cookie": cookie_data}  # Pass the original cookies
     response = requests.get(url, headers=headers)
 

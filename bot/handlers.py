@@ -1,88 +1,94 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    ConversationHandler, CallbackContext
-)
+from telegram import Update
+from telegram.ext import ConversationHandler, CallbackContext
 
-from database.db import UserDatabase
-from laundry_connect.account_balance import get_transactions_sum
-from laundry_connect.auth import authenticate_pralni
-from laundry_connect.topup import topup_account
+from bot.utils import is_logged_in, build_topup_keyboard, save_user_and_pass
+from laundry.account_balance import get_transactions_sum
+from laundry.cookies import generate_session_cookies
+from laundry.topup import topup_account
 
 # Conversation stages
 EXTERNAL_LOGIN, EXTERNAL_PASSWORD = range(2)
-db = UserDatabase()
+
 
 async def start(update: Update, context: CallbackContext) -> int:
-    # Ask for login to the laundry service
+    """Starts the authentication conversation by requesting the login."""
     await update.message.reply_text("Podaj login do serwisu pralni:")
     return EXTERNAL_LOGIN
 
 
 async def external_login(update: Update, context: CallbackContext) -> int:
-    # Save the provided login in user data
-    context.user_data["pralni_login"] = update.message.text.strip()
+    """Stores the login and asks for the password."""
+    login = update.message.text.strip()
+    context.user_data["pralni_login"] = login
     await update.message.reply_text("Podaj hasło do serwisu pralni:")
     return EXTERNAL_PASSWORD
 
 
 async def external_password(update: Update, context: CallbackContext) -> int:
-    # Retrieve login and password, then attempt authentication
-    login_value = context.user_data.get("pralni_login")
-    password_value = update.message.text.strip()
+    """
+    Attempts authentication using the provided login and password.
+    On success, saves credentials and notifies the user.
+    On failure, restarts the login process.
+    """
+    login = context.user_data.get("pralni_login")
+    password = update.message.text.strip()
     chat_id = update.message.chat_id
 
-    auth_result = authenticate_pralni(login_value, password_value, chat_id)
+    auth_result = generate_session_cookies(login, password, chat_id)
     if auth_result is None:
         await update.message.reply_text("Niepoprawne dane. Spróbuj jeszcze raz. Podaj login:")
         return EXTERNAL_LOGIN
-    else:
-        db.set_username(chat_id, login_value)
-        db.set_password(chat_id, password_value)
-        await update.message.reply_text(
-            "Zalogowano w serwisie pralni!\n"
-            "Możesz teraz korzystać z komend /stan oraz /doladuj."
-        )
-        return ConversationHandler.END
+    save_user_and_pass(chat_id, login, password)
+    await update.message.reply_text(
+        "Zalogowano w serwisie pralni!\n"
+        f"Aktualny stan konta: {get_transactions_sum(chat_id)}\n"
+        "Możesz teraz korzystać z komend /stan oraz /doladuj."
+    )
+    return ConversationHandler.END
 
 
 async def stan(update: Update, context: CallbackContext) -> None:
-    # Display the current account balance
+    """
+    Displays the current account balance if the user is authenticated.
+    Notifies the user if not logged in or if there's an error fetching the balance.
+    """
     chat_id = update.message.chat_id
-    if db.get_cookies(chat_id):
-        current_balance = get_transactions_sum(chat_id)
-        if current_balance:
-            await update.message.reply_text(f"Stan Twojego konta: {current_balance}")
+    if is_logged_in(chat_id):
+        balance = get_transactions_sum(chat_id)
+        if balance is not None:
+            await update.message.reply_text(f"Stan Twojego konta: {balance}")
         else:
-            await update.message.reply_text(f"Coś się zepsuło. Nie udało się pobrać stanu konta.")
+            await update.message.reply_text("Coś się zepsuło. Nie udało się pobrać stanu konta.")
     else:
         await update.message.reply_text("Nie jesteś zalogowany. Użyj /start aby się zalogować.")
 
 
 async def doladuj(update: Update, context: CallbackContext) -> None:
+    """
+    Sends the user an inline keyboard to choose a top-up amount.
+    If the user is not logged in, they are informed accordingly.
+    """
     chat_id = update.message.chat_id
-
-    if not db.get_cookies(chat_id):
+    if not is_logged_in(chat_id):
         await update.message.reply_text("Nie jesteś zalogowany. Użyj /start aby się zalogować.")
         return
 
-    keyboard = [
-        [InlineKeyboardButton("10 zł", callback_data="1")],
-        [InlineKeyboardButton("15 zł", callback_data="2")],
-        [InlineKeyboardButton("20 zł", callback_data="3")],
-        [InlineKeyboardButton("30 zł", callback_data="4")],
-        [InlineKeyboardButton("50 zł", callback_data="5")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    reply_markup = build_topup_keyboard()
     await update.message.reply_text("Wybierz kwotę doładowania:", reply_markup=reply_markup)
 
+
 async def button_callback(update: Update, context: CallbackContext) -> None:
+    """
+    Handles callback queries from the top-up selection.
+    Provides the top-up link based on the selected amount or an error message if the selection is invalid.
+    """
     query = update.callback_query
     await query.answer()
 
     chat_id = query.message.chat_id
-
     selected_option = query.data
-    if selected_option not in ("1", "2", "3", "4", "5"):
+
+    if selected_option not in map(str, range(1, 6)):
         await query.edit_message_text("Wybrano niepoprawną opcję.")
         return
 
@@ -94,6 +100,6 @@ async def button_callback(update: Update, context: CallbackContext) -> None:
 
 
 async def cancel(update: Update, context: CallbackContext) -> int:
-    # Cancel the authentication process
+    """Cancels the authentication process."""
     await update.message.reply_text("Anulowano proces autentykacji.")
     return ConversationHandler.END

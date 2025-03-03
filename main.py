@@ -1,5 +1,6 @@
 import logging
 import os
+import threading
 
 from dotenv import load_dotenv
 from telegram.ext import (
@@ -13,6 +14,7 @@ from telegram.ext import (
 
 from bot import handlers
 from database.db import UserDatabase
+from laundry.cookies import refresh_cookies_daemon
 
 load_dotenv()
 
@@ -25,6 +27,13 @@ logging.basicConfig(
 )
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+
+refresher_thread = threading.Thread(
+    target=refresh_cookies_daemon,
+    kwargs={'days_before': 5},
+    daemon=True
+)
+refresher_thread.start()
 
 # Build the Telegram bot application
 app = Application.builder().token(TELEGRAM_TOKEN).build()
